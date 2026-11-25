@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ONM Video Slicer: split a video into its scenes</title>
+<meta name="description" content="Drop in a short video and watch the Optimal Number of clusters Method split it into scenes. Team B14, Sir MVIT, INNO VISTA 3.0.">
+<meta name="theme-color" content="#0b0d0f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#workbench">Skip to the workbench</a>
+
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <a class="brand" href="./" aria-label="ONM Video Slicer, start over">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span class="brand-name">ONM Video Slicer</span>
+    </a>
+    <p class="topbar-meta">Team B14 <span>·</span> Sir MVIT <span>·</span> INNO VISTA 3.0</p>
+  </div>
+</header>
+
+<main>
+  <!-- Workbench: the app is the hero -->
+  <section class="hero" id="workbench">
+    <div class="wrap hero-grid">
+      <div class="hero-copy" data-enter>
+        <p class="eyebrow">Video scene segmentation · ISE final-year project</p>
+        <h1>Drop in a video.<br>Get its scenes back.</h1>
+        <p class="lede">No training, no GPU: ONM counts the scenes instead of guessing k.</p>
+
+        <div class="pick">
+          <h2 class="pick-h">Run a sample clip</h2>
+          <div class="samples" id="samples" aria-live="polite">
+            <div class="sample sample-skel" aria-hidden="true"></div>
+            <div class="sample sample-skel" aria-hidden="true"></div>
+          </div>
+
+          <h2 class="pick-h">Or upload your own</h2>
+          <label class="drop" id="drop" for="file">
+            <input type="file" id="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm">
+            <span class="drop-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 16V4M6.5 9.5 12 4l5.5 5.5"/><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>
+            </span>
+            <span class="drop-text"><strong>Drop a video here</strong> or click to choose one</span>
+            <span class="drop-note">MP4, MOV or WebM, up to 60 MB. Short clips work best. Long videos are trimmed to 90 s.</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Live pipeline panel -->
+      <div class="console-card" id="runPanel" data-enter data-state="idle" aria-live="polite">
+        <div class="cc-head">
+          <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="cc-title" id="runTitle">Pipeline · waiting for a video</span>
+          <span class="cc-status" id="runStatus">idle</span>
+        </div>
+        <ol class="stepper" id="stepper">
+          <li data-s="1"><b>01</b><span>Extract frames</span><em>every frame, original rate</em></li>
+          <li data-s="2"><b>02</b><span>Reduce to 5 fps</span><em>keep every stride-th frame</em></li>
+          <li data-s="3"><b>03</b><span>Greyscale + CLAHE</span><em>local contrast, even lighting</em></li>
+          <li data-s="4"><b>04</b><span>379 features + PCA</span><em>texture, luminance, edges, compressed</em></li>
+          <li data-s="5"><b>05</b><span>ONM clustering</span><em>SDCO counts recurring frames</em></li>
+          <li data-s="6"><b>06</b><span>Map to original frames</span><em>snap each cut to the true frame</em></li>
+          <li data-s="7"><b>07</b><span>Report</span><em>scenes, A(C), D(C), charts</em></li>
+        </ol>
+        <div class="progress" aria-hidden="true"><div class="progress-bar" id="progressBar"></div></div>
+        <pre class="log" id="log">$ waiting for input
+  pick a sample clip or drop a video on the left</pre>
+        <div class="cc-foot">
+          <span id="runQueue"></span>
+          <button class="btn btn-ghost" id="cancelBtn" type="button" hidden>Try another video</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Results -->
+  <section class="results" id="results" hidden>
+    <div class="wrap">
+      <div class="res-head">
+        <div>
+          <p class="eyebrow" id="resEyebrow">Result</p>
+          <h2 id="resTitle">Scenes found</h2>
+        </div>
+        <button class="btn btn-primary" id="resetBtn" type="button">Try another video</button>
+      </div>
+
+      <div class="player-grid">
+        <div class="player">
+          <div class="video-box">
+            <video id="video" controls playsinline preload="metadata"></video>
+            <div class="video-mock" id="videoMock" hidden><span id="videoMockText"></span></div>
+          </div>
+          <div class="timeline" id="timeline" role="group" aria-label="Scene timeline, click a block to jump">
+            <div class="tl-track" id="tlTrack"></div>
+            <div class="tl-head" id="tlHead" aria-hidden="true"></div>
+          </div>
+          <div class="tl-scale" id="tlScale" aria-hidden="true"></div>
+          <p class="now" id="nowLine">Scene 1</p>
+        </div>
+
+        <dl class="metrics" id="metrics"></dl>
+      </div>
+
+      <div class="block">
+        <div class="block-head">
+          <h3>Scenes</h3>
+          <p>Each card is one run of frames assigned to the same centroid. Click one to jump there.</p>
+        </div>
+        <div class="scenes" id="scenes"></div>
+      </div>
+
+      <div class="charts">
+        <div class="panel">
+          <div class="block-head">
+            <h3>Boundary signal</h3>
+            <p>Frame-to-frame change across the 5 fps timeline. Vertical lines are the cuts ONM kept.</p>
+          </div>
+          <div class="chart" id="novelty"></div>
+        </div>
+        <div class="panel">
+          <div class="block-head">
+            <h3>Frame map</h3>
+            <p>Every 5 fps frame in two PCA dimensions, coloured by the cluster it joined.</p>
+          </div>
+          <div class="chart chart-sq"><canvas id="scatter" aria-label="Scatter plot of frames by cluster" role="img"></canvas></div>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="block-head">
+          <h3>What the pipeline saw</h3>
+          <p>One frame at three points in the pipeline.</p>
+        </div>
+        <div class="saw" id="saw">
+          <figure><div class="saw-img"><img id="sawOrig" alt="Original frame"></div><figcaption>Original</figcaption></figure>
+          <figure><div class="saw-img"><img id="sawRed" alt="Frame from the 5 fps sample"></div><figcaption>5 fps sample</figcaption></figure>
+          <figure><div class="saw-img"><img id="sawEnh" alt="Frame after greyscale and CLAHE"></div><figcaption>Greyscale + CLAHE</figcaption></figure>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Explainer -->
+  <section class="how" id="how">
+    <div class="wrap">
+      <div class="how-head">
+        <p class="eyebrow">How ONM works</p>
+        <h2>The number of scenes is a count, not a guess.</h2>
+        <p class="lede-sm">k-means needs k up front. ONM asks a different question: how many distinct frames repeat at least CC times? Those frames become the centroids, and their count is the number of clusters.</p>
+      </div>
+      <ol class="how-steps">
+        <li>
+          <span class="n">1</span>
+          <h3>Turn frames into vectors</h3>
+          <p>Sample at 5 fps, convert to greyscale, even out contrast with CLAHE, then measure 379 luminance, texture and edge features and compress them with PCA.</p>
+        </li>
+        <li>
+          <span class="n">2</span>
+          <h3>Count recurring frames</h3>
+          <p>SDCO scores each frame by how many others sit within threshold T of it. Frames that repeat at least CC times, and are not near an accepted centroid, become centroids.</p>
+        </li>
+        <li>
+          <span class="n">3</span>
+          <h3>Assign and smooth</h3>
+          <p>Every frame joins its nearest centroid. Short runs are merged and weak boundaries dropped, so a scene cannot flicker on and off.</p>
+        </li>
+        <li>
+          <span class="n">4</span>
+          <h3>Validate and map back</h3>
+          <p>ECVM reports A(C), the share of frames close to their centroid, and D(C), the share far from it. Labels are mapped back to the original frame rate and each cut snapped to the true frame.</p>
+        </li>
+      </ol>
+      <p class="lede-sm" style="margin-top:28px">A(C) measures within-cluster association at the reported SL, not scene-detection accuracy. This pipeline targets hard cuts. Slow fades and shots that differ only in colour may be missed.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <div>
+      <p class="foot-title">Video Slicing System for Automatically Dividing Video Content into Discrete Clusters Using ONM</p>
+      <p>Nikhil Verma · Prachi Kumari · Mohd Mursaleen · Prince Mishra</p>
+      <p>Guide: Dr. Sreedhar Kumar S · Department of ISE, Sir M. Visvesvaraya Institute of Technology, Bengaluru</p>
+    </div>
+    <div class="foot-right">
+      <a class="link" href="https://github.com/nikvermaaa/video-segmentation" target="_blank" rel="noopener">Source on GitHub</a>
+      <p>Paper: DSISys 2026 (Springer LNNS), under review</p>
+      <p>Sample films: <a class="link" href="https://www.sintel.org/" target="_blank" rel="noopener">Sintel</a> and <a class="link" href="https://peach.blender.org/" target="_blank" rel="noopener">Big Buck Bunny</a>, Blender Foundation, <a class="link" href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener">CC BY 3.0</a>. Trailers resized for this demo.</p>
+    </div>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="alert" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

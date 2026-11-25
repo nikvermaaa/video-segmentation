@@ -68,6 +68,20 @@ Stages 1, 2, 6 and 7 are mechanical and documented in their own file headers.
 
 ---
 
+## Browser demo
+
+A live workbench, video uploads, scene thumbnails, a clickable timeline and
+ONM charts are in [`web/`](web/README.md). It uses the same stages below.
+
+```bash
+pip install -r requirements.txt -r web/requirements.txt
+python web/fetch_samples.py
+python web/server.py --port 8000
+```
+
+Open http://127.0.0.1:8000. Install `ffmpeg` for automatic 480p H.264
+normalisation of uploads. The command-line pipeline remains unchanged.
+
 ## Running it
 
 Full installation instructions, including conda, are in
