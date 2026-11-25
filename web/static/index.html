@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en" data-type="software">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ONM Video Slicer: split a video into its scenes</title>
+<meta name="description" content="See how a video becomes a set of scenes. Choose a short film, find scene changes and jump straight to any scene. Team B14, Sir MVIT.">
+<meta name="theme-color" content="#ffffff">
+<meta name="page-type" content="software">
+<meta name="site-kind" content="software">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=light-1">
+</head>
+<body>
+<a class="skip" href="#workbench">Skip to the demo</a>
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <a class="brand" href="./" aria-label="ONM Video Slicer, start over">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span class="brand-name">Video Slicer <small>with ONM</small></span>
+    </a>
+    <p class="topbar-meta">Team B14 <span>·</span> Sir MVIT <span>·</span> INNO VISTA 3.0</p>
+  </div>
+</header>
+<main>
+  <section class="hero" id="workbench">
+    <div class="wrap">
+      <div class="hero-grid">
+        <div class="hero-copy" data-enter>
+          <p class="eyebrow">An interactive video project</p>
+          <h1>Split a video<br><span>into scenes.</span></h1>
+          <p class="lede">The system finds changes in the picture and marks them on a timeline. Click a scene to watch from there.</p>
+          <ol class="journey" aria-label="Three steps to use the demo">
+            <li><b>1</b><span>Choose a video</span></li>
+            <li><b>2</b><span>Find scene changes</span></li>
+            <li><b>3</b><span>Click a scene to watch</span></li>
+          </ol>
+          <div class="pick">
+            <h2 class="pick-h">Try it with a short film</h2>
+            <p class="pick-note">Choose a film to find its scenes.</p>
+            <div class="samples" id="samples" aria-live="polite">
+              <div class="sample sample-skel" aria-hidden="true"></div>
+              <div class="sample sample-skel" aria-hidden="true"></div>
+            </div>
+            <label class="drop" id="drop" for="file">
+              <input type="file" id="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm">
+              <span class="drop-icon" aria-hidden="true">↑</span>
+              <span class="drop-text"><strong>Choose your own video</strong><span>or drag and drop it here</span></span>
+              <span class="drop-note">MP4, MOV or WebM · Up to 60 MB<br>We analyse the first 90 seconds of longer videos.</span>
+            </label>
+          </div>
+        </div>
+        <div class="preview" id="preview" data-enter>
+          <div class="preview-head"><span class="preview-kicker">See what it does</span><span class="preview-badge">A real film, divided into scenes</span></div>
+          <div class="preview-content" id="previewContent">
+            <div class="preview-placeholder"><span class="preview-play" aria-hidden="true">▶</span><p>Loading the film preview…</p></div>
+          </div>
+          <p class="preview-hint">Choose a film to create your own result.</p>
+        </div>
+      </div>
+      <div class="console-card" id="runPanel" data-state="idle" aria-live="polite" hidden>
+        <div class="cc-head">
+          <div><p class="eyebrow">Finding the scenes</p><h2 class="cc-title" id="runTitle">Choose a video to begin</h2></div>
+          <span class="cc-status" id="runStatus">Ready</span>
+        </div>
+        <ol class="stepper" id="stepper">
+          <li data-s="1"><b>1</b><span>Read the video</span><em>Separate it into still pictures</em></li>
+          <li data-s="2"><b>2</b><span>Choose pictures to compare</span><em>Use a smaller set of frames</em></li>
+          <li data-s="3"><b>3</b><span>Make details clearer</span><em>Adjust contrast in black and white</em></li>
+          <li data-s="4"><b>4</b><span>Compare visual details</span><em>Measure brightness, texture and edges</em></li>
+          <li data-s="5"><b>5</b><span>Group similar pictures</span><em>Let ONM find the groups</em></li>
+          <li data-s="6"><b>6</b><span>Locate scene changes</span><em>Find their times in the original video</em></li>
+          <li data-s="7"><b>7</b><span>Prepare your scenes</span><em>Build the timeline and previews</em></li>
+        </ol>
+        <div class="progress" aria-hidden="true"><div class="progress-bar" id="progressBar"></div></div>
+        <div class="cc-foot"><span id="runQueue"></span><button class="btn btn-ghost" id="cancelBtn" type="button" hidden>Try another video</button></div>
+        <details class="run-details"><summary>View processing log</summary><pre class="log" id="log">Choose a film or upload a video to begin.</pre></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="results" id="results" hidden>
+    <div class="wrap">
+      <div class="res-head">
+        <div><p class="eyebrow" id="resEyebrow">Your result</p><h2 id="resTitle">Scenes found</h2><p class="result-intro">Your video is now easier to browse. Choose any scene below to watch from that moment.</p></div>
+        <button class="btn btn-primary" id="resetBtn" type="button">Try another video</button>
+      </div>
+      <div class="result-summary" id="resultSummary" aria-label="Video summary"></div>
+      <div class="player-grid">
+        <div class="player">
+          <div class="player-label"><h3>Your original video</h3><span>Scene changes are marked below</span></div>
+          <div class="video-box"><video id="video" controls playsinline preload="metadata"></video><div class="video-mock" id="videoMock" hidden><span id="videoMockText"></span></div></div>
+          <div class="timeline" id="timeline" role="group" aria-label="Scene timeline, click a block to jump"><div class="tl-track" id="tlTrack"></div><div class="tl-head" id="tlHead" aria-hidden="true"></div></div>
+          <div class="tl-scale" id="tlScale" aria-hidden="true"></div>
+          <p class="now" id="nowLine">Scene 1</p>
+        </div>
+        <aside class="result-help"><h3>Jump to a scene</h3><p>Click a picture to watch from that moment.</p><div id="quickScenes" class="quick-scenes"></div><a class="link" href="#sceneList">See all scenes ↓</a></aside>
+      </div>
+      <div class="block" id="sceneList">
+        <div class="block-head"><h3>Your scenes</h3><p>Click any picture to watch that part of the video.</p></div>
+        <p class="scene-note">Scene breaks are suggestions based on picture changes. Slow fades and colour-only changes may be missed.</p>
+        <div class="scenes" id="scenes"></div>
+      </div>
+      <details class="technical" id="technical">
+        <summary><span>How it works<span class="summary-sub">Measurements, graphs and image comparisons</span></span><span class="summary-icon" aria-hidden="true">+</span></summary>
+        <div class="technical-content">
+          <div class="block-head"><h3>The measurements behind this result</h3><p>These describe how frames were grouped. They are not an accuracy score.</p></div>
+          <dl class="metrics" id="metrics"></dl>
+          <div class="charts">
+            <div class="panel"><div class="block-head"><h3>Where the picture changes</h3><p>Higher peaks mean a larger visual change between sampled frames. Dotted lines mark detected scene changes.</p></div><div class="chart" id="novelty"></div></div>
+            <div class="panel"><div class="block-head"><h3>How the pictures form groups</h3><p>Each dot is a sampled frame. Its colour shows the group it joined. Nearby dots have similar measured features.</p></div><div class="chart chart-sq"><canvas id="scatter" aria-label="Scatter plot of frames by cluster" role="img"></canvas></div></div>
+          </div>
+          <div class="block"><div class="block-head"><h3>Preparing a picture for comparison</h3><p>The system compares brightness, texture and edges, rather than understanding the story.</p></div>
+            <div class="saw" id="saw"><figure><h4>Original picture</h4><div class="saw-img"><img id="sawOrig" alt="Original video frame"></div></figure><figure><h4>A selected frame</h4><div class="saw-img"><img id="sawRed" alt="Frame selected for comparison"></div></figure><figure><h4>Clearer details in black and white</h4><div class="saw-img"><img id="sawEnh" alt="Frame after greyscale and contrast adjustment"></div></figure></div>
+          </div>
+          <p class="method-note">A(C) measures within-cluster association at the reported SL, not scene-detection accuracy. ONM works best with sudden changes between shots. It can miss slow fades or shots that differ mainly in colour.</p>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <section class="how" id="how"><div class="wrap">
+    <div class="how-head"><p class="eyebrow">Behind the demo</p><h2>Finding scenes by comparing pictures</h2><p class="lede-sm">A video is a sequence of still pictures. Our system compares them, groups similar ones and marks where those groups change.</p></div>
+    <ol class="how-steps"><li><span class="n">1</span><h3>Look at the pictures</h3><p>Take frames from the video and measure their brightness, texture and edges.</p></li><li><span class="n">2</span><h3>Find similar groups</h3><p>ONM chooses the number of groups from the frames, without being told a number in advance.</p></li><li><span class="n">3</span><h3>Mark the changes</h3><p>Use changes between groups to divide the video into scenes you can jump to.</p></li></ol>
+    <p class="limits-note">Best for sudden shot changes. Slow fades and colour-only changes may be missed.</p>
+  </div></section>
+</main>
+<footer class="foot"><div class="wrap foot-grid"><div><p class="foot-title">Video Slicing System for Automatically Dividing Video Content into Discrete Clusters Using ONM</p><p>Nikhil Verma · Prachi Kumari · Mohd Mursaleen · Prince Mishra</p><p>Guide: Dr. Sreedhar Kumar S · Department of ISE, Sir MVIT, Bengaluru</p></div><div class="foot-right"><a class="link" href="https://github.com/nikvermaaa/video-segmentation" target="_blank" rel="noopener">View project source</a><p>Paper: DSISys 2026 (Springer LNNS), under review</p><p>Films: <a href="https://www.sintel.org/" target="_blank" rel="noopener">Sintel</a> and <a href="https://peach.blender.org/" target="_blank" rel="noopener">Big Buck Bunny</a>, Blender Foundation, <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener">CC BY 3.0</a>. Trailers resized for this demo.</p></div></div></footer>
+<div class="toast" id="toast" role="alert" hidden></div>
+<script src="app.js?v=light-1"></script>
+</body>
+</html>
