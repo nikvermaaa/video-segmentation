@@ -21,7 +21,7 @@
     "#c9cf5a", // olive
     "#f0c75a", // gold
   ];
-  const STAGES = ["Queued", "Extract frames", "Reduce to 5 fps", "Greyscale + CLAHE", "379 features + PCA", "ONM clustering", "Map to original frames", "Report"];
+  const STAGES = ["Waiting for a turn", "Reading the video", "Choosing pictures to compare", "Making details clearer", "Comparing visual details", "Grouping similar pictures", "Locating scene changes", "Preparing your scenes"];
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const $ = (s, r = document) => r.querySelector(s);
@@ -29,6 +29,8 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const colour = (label) => PALETTE[((Number(label) || 0) % PALETTE.length + PALETTE.length) % PALETTE.length];
   const segLabel = (s) => (s.label ?? s.cluster ?? s.id);
+  // Early cached samples predate the /run/web media layout. Live jobs already use it.
+  const sampleAsset = (url) => String(url || "").replace(/^(\/files\/sample-[^/]+)\/web\//, "$1/run/web/");
 
   function fmtTime(s) {
     s = Math.max(0, Number(s) || 0);
@@ -74,6 +76,9 @@
     sawRed: $("#sawRed"),
     sawEnh: $("#sawEnh"),
     toast: $("#toast"),
+    summary: $("#resultSummary"),
+    technical: $("#technical"),
+    preview: $("#previewContent"),
   };
 
   const state = { jobId: null, pollTimer: null, pollFails: 0, result: null, duration: 0, current: -1, runToken: 0 };
@@ -129,13 +134,25 @@
         ui.samples.append(el("p", "samples-empty", "No sample clips on this machine. Upload a video below."));
         return;
       }
+      list.sort((a, b) => Number(b.id === "sintel") - Number(a.id === "sintel"));
       list.forEach((s, i) => {
         const b = el("button", "sample");
         b.type = "button";
         b.style.setProperty("--c", PALETTE[i % PALETTE.length]);
-        b.innerHTML = `<span class="sample-title">${esc(s.title || s.id)}</span>
-          <span class="sample-meta"><span>${s.duration ? fmtNum(s.duration, 1) + " s" : ""}</span>
-          <span>${s.ready === false ? "runs live" : "ready"}</span><span class="sample-run" aria-hidden="true">Run →</span></span>`;
+        b.innerHTML = `<span class="sample-poster" hidden></span><span class="sample-body"><span class="sample-title">${esc(s.title || s.id)}</span>
+          <span class="sample-meta"><span>${s.duration ? fmtNum(s.duration, 0) + " seconds" : "Short film"}</span>
+          <span class="sample-run">Find scenes →</span></span></span>`;
+        if (!MOCK && s.ready) {
+          api(`/api/jobs/sample-${encodeURIComponent(s.id)}`).then((job) => {
+            const r = job.result;
+            if (!r?.segments?.length) return;
+            const poster = r.segments[Math.floor(r.segments.length / 2)].thumb_url;
+            const slot = b.querySelector(".sample-poster");
+            slot.innerHTML = `<img src="${esc(sampleAsset(poster))}" alt="" loading="eager">`;
+            slot.hidden = false;
+            if (i === 0) renderPreview(r, s);
+          }).catch(() => { if (i === 0) previewUnavailable(); });
+        } else if (i === 0) previewUnavailable();
         b.setAttribute("aria-label", `Run ${s.title || s.id}`);
         b.addEventListener("click", () => startSample(s));
         ui.samples.append(b);
@@ -146,6 +163,20 @@
     }
   }
 
+  function previewUnavailable() {
+    ui.preview.innerHTML = `<div class="preview-placeholder"><span class="preview-play" aria-hidden="true">▶</span><p>Choose a film to see its scenes.</p></div>`;
+  }
+
+  function renderPreview(r, sample) {
+    const segs = r.segments;
+    const indexes = [Math.min(1, segs.length - 1), Math.floor(segs.length / 2), Math.max(0, segs.length - 3)];
+    const hero = segs[indexes[1]];
+    ui.preview.innerHTML = `<div class="preview-video"><img src="${esc(sampleAsset(hero.thumb_url))}" alt="A frame from ${esc(sample.title)}"></div>
+      <div class="preview-caption"><strong>One original video</strong><span>${esc(sample.title)}</span></div>
+      <div class="preview-connector">${segs.length} scenes found in this film</div>
+      <div class="preview-scenes">${indexes.map((idx) => `<div class="preview-scene"><img src="${esc(sampleAsset(segs[idx].thumb_url))}" alt="Preview of scene ${idx + 1}"><span>Scene ${idx + 1} · ${fmtTime(segs[idx].start_s)}</span></div>`).join("")}</div>`;
+  }
+
   /* ---------------- run lifecycle ---------------- */
   function setBusy(on) {
     ui.body.classList.toggle("is-busy", on);
@@ -154,9 +185,10 @@
   }
 
   function resetPanel(title) {
+    ui.panel.hidden = false;
     ui.panel.dataset.state = "queued";
     ui.title.textContent = title;
-    ui.status.textContent = "queued";
+    ui.status.textContent = "Waiting";
     ui.bar.style.width = "0%";
     ui.queue.textContent = "";
     ui.cancel.hidden = true;
@@ -175,12 +207,12 @@
   }
 
   function scrollToPanel() {
-    if (window.innerWidth < 900) ui.panel.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    ui.panel.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
   }
 
   async function startSample(s) {
     hideResults();
-    resetPanel(`Pipeline · ${s.title || s.id}`);
+    resetPanel(`Finding scenes in ${s.title || s.id}`);
     setBusy(true);
     scrollToPanel();
     try {
@@ -202,10 +234,10 @@
       return;
     }
     hideResults();
-    resetPanel(`Pipeline · ${file.name}`);
+    resetPanel(`Finding scenes in ${file.name}`);
     setBusy(true);
     scrollToPanel();
-    ui.status.textContent = "uploading";
+    ui.status.textContent = "Uploading";
     try {
       const { job_id } = await uploadFile(file, (p) => {
         ui.bar.style.width = `${(p * 100).toFixed(0)}%`;
@@ -275,7 +307,7 @@
     const prog = Math.max(0, Math.min(1, Number(job.progress) || 0));
     const status = job.status || "running";
     ui.panel.dataset.state = status === "done" ? "done" : status === "error" ? "error" : status === "queued" ? "queued" : "running";
-    ui.status.textContent = status;
+    ui.status.textContent = ({queued: "Waiting", running: "Working", done: "Ready", error: "Please try again"})[status] || "Working";
     ui.stepper.querySelectorAll("li").forEach((li) => {
       const n = Number(li.dataset.s);
       li.className = "";
@@ -289,7 +321,7 @@
     const overall = status === "done" ? 1 : stage === 0 ? 0 : ((stage - 1) + prog) / 7;
     ui.bar.style.width = `${(overall * 100).toFixed(1)}%`;
     if (status === "queued" && job.queue_position) ui.queue.textContent = `Position ${job.queue_position} in the queue`;
-    else if (stage > 0 && status === "running") ui.queue.textContent = `Stage ${stage} of 7 · ${job.stage_name || STAGES[stage]} · ${(prog * 100).toFixed(0)}%`;
+    else if (stage > 0 && status === "running") ui.queue.textContent = `Step ${stage} of 7: ${STAGES[stage]}`;
     else ui.queue.textContent = "";
     if (Array.isArray(job.log) && job.log.length) logLines(job.log);
   }
@@ -302,7 +334,7 @@
     setBusy(false);
     ui.cancel.hidden = false;
     ui.panel.dataset.state = "done";
-    ui.status.textContent = "done";
+    ui.status.textContent = "Ready";
     const r = job.result;
     if (!r) { fail("The job finished but returned no result."); return; }
     ui.queue.textContent = `Finished in ${fmtNum(r.elapsed_s, 1)} s · ${r.segments ? r.segments.length : 0} scenes`;
@@ -315,12 +347,20 @@
     state.runToken++;
     setBusy(false);
     ui.panel.dataset.state = "error";
-    ui.status.textContent = "error";
+    ui.status.textContent = "Please try again";
     ui.cancel.hidden = false;
     const lines = (job && Array.isArray(job.log) ? job.log : ui.log.textContent.split("\n").filter(Boolean));
     logLines([...lines, `error: ${msg}`]);
-    ui.queue.textContent = "";
-    toast(msg);
+    const friendly = /decode|invalid data|opening input|no frames|could not read/i.test(msg)
+      ? "This video could not be read. Try another MP4, MOV or WebM file."
+      : /four videos|429/i.test(msg)
+      ? "The demo is busy with other videos. Please try again in a moment."
+      : /lost contact|could not be reached|failed to fetch/i.test(msg)
+      ? "The connection was interrupted. Please try your video again."
+      : msg;
+    ui.title.textContent = "Your video could not be processed";
+    ui.queue.textContent = friendly;
+    toast(friendly);
   }
 
   function resetAll() {
@@ -331,13 +371,14 @@
     setBusy(false);
     hideResults();
     ui.panel.dataset.state = "idle";
-    ui.title.textContent = "Pipeline · waiting for a video";
-    ui.status.textContent = "idle";
+    ui.title.textContent = "Choose a video to begin";
+    ui.status.textContent = "Ready";
+    ui.panel.hidden = true;
     ui.bar.style.width = "0%";
     ui.queue.textContent = "";
     ui.cancel.hidden = true;
     ui.stepper.querySelectorAll("li").forEach((li) => { li.className = ""; });
-    ui.log.textContent = "$ waiting for input\n  pick a sample clip or drop a video on the left";
+    ui.log.textContent = "Choose a film or upload a video to begin.";
     ui.file.value = "";
     window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
   }
@@ -345,6 +386,8 @@
   /* ---------------- results ---------------- */
   function hideResults() {
     ui.results.hidden = true;
+    ui.body.classList.remove("has-results");
+    ui.technical.open = false;
     try { ui.video.pause(); } catch (_) { /* ignore */ }
     stopMockClock();
     state.result = null;
@@ -358,7 +401,8 @@
     state.current = -1;
 
     ui.resEyebrow.textContent = `Result · ${r.name || "video"}`;
-    ui.resTitle.textContent = `${segs.length} scene${segs.length === 1 ? "" : "s"} in ${fmtNum(state.duration, 1)} seconds`;
+    ui.resTitle.textContent = `${segs.length} suggested scene${segs.length === 1 ? "" : "s"}`;
+    ui.summary.innerHTML = `<span><strong>${segs.length}</strong> scenes found</span><span><strong>${fmtNum(state.duration, 1)} seconds</strong> of video</span><span><strong>${fmtNum(r.elapsed_s, 1)} seconds</strong> to process</span>`;
 
     renderMetrics(r);
     renderTimeline(segs);
@@ -368,11 +412,10 @@
     ui.sawEnh.src = r.stages?.enhanced_url || "";
 
     ui.results.hidden = false;
+    ui.body.classList.add("has-results");
     setupPlayer(r);
     // charts need layout
     requestAnimationFrame(() => {
-      renderNovelty(r.novelty || [], segs);
-      renderScatter(r.scatter || []);
       updatePlayhead(0);
     });
     ui.results.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
@@ -382,15 +425,15 @@
     const o = r.onm || {};
     const m = r.meta || {};
     const items = [
-      ["SDCO N", fmtNum(o.N_centroids), "", "hl"],
-      ["Clusters", fmtNum(o.N_clusters), "", "hl"],
-      ["A(C)", fmtNum(o.A, 1), "%", ""],
-      ["D(C)", fmtNum(o.D, 1), "%", ""],
-      ["T", fmtNum(o.T, 3), "", ""],
-      ["CC", fmtNum(o.CC), "", ""],
-      ["SL", fmtNum(o.SL, 3), "", ""],
-      ["PCA dims", `${fmtNum(m.raw_features ?? 379)}<small>→</small>${fmtNum(m.pca_dims)}`, "", ""],
-      ["Frames → 5 fps", `${fmtNum(m.frames)}<small>→</small>${fmtNum(m.frames_5fps)}`, "", "wide"],
+      ["Initial groups (SDCO N)", fmtNum(o.N_centroids), "", "hl"],
+      ["Final groups", fmtNum(o.N_clusters), "", "hl"],
+      ["Within-group association A(C)", fmtNum(o.A, 1), "%", ""],
+      ["Outside-group dissociation D(C)", fmtNum(o.D, 1), "%", ""],
+      ["Similarity threshold (T)", fmtNum(o.T, 3), "", ""],
+      ["Recurrence count (CC)", fmtNum(o.CC), "", ""],
+      ["Validation limit (SL)", fmtNum(o.SL, 3), "", ""],
+      ["Features before / after PCA", `${fmtNum(m.raw_features ?? 379)}<small>→</small>${fmtNum(m.pca_dims)}`, "", ""],
+      ["Original / sampled frames", `${fmtNum(m.frames)}<small>→</small>${fmtNum(m.frames_5fps)}`, "", "wide"],
       ["Source fps", fmtNum(m.fps, 2), "", ""],
       ["Processing", fmtNum(r.elapsed_s, 1), "s", ""],
     ];
@@ -423,21 +466,33 @@
 
   function renderScenes(segs) {
     ui.scenes.innerHTML = "";
+    const quick = $("#quickScenes");
+    quick.innerHTML = "";
+    const picks = [...new Set([Math.min(1, segs.length - 1), Math.floor(segs.length / 2), Math.max(0, segs.length - 2)])].filter((i) => i >= 0);
+    picks.forEach((i) => {
+      const s = segs[i];
+      const b = el("button", "quick-scene");
+      b.type = "button";
+      b.setAttribute("aria-label", `Watch scene ${i + 1} from ${fmtTime(s.start_s)}`);
+      b.innerHTML = `<img src="${esc(s.thumb_url)}" alt=""><span><strong>Scene ${i + 1}</strong><small>${fmtTime(s.start_s)} <span aria-hidden="true">▶</span></small></span>`;
+      b.addEventListener("click", () => seek(s.start_s));
+      quick.append(b);
+    });
     segs.forEach((s, i) => {
       const c = colour(segLabel(s));
       const card = el("button", "scene");
       card.type = "button";
       card.style.setProperty("--c", c);
-      const strip = (s.sample_thumbs || []).slice(0, 6).map((u) => `<img src="${esc(u)}" alt="" loading="lazy">`).join("");
+      card.setAttribute("aria-label", `Watch scene ${i + 1} from ${fmtTime(s.start_s)}`);
       const dur = s.duration_s ?? (s.end_s - s.start_s);
       card.innerHTML = `
-        <div class="scene-thumb"><img src="${esc(s.thumb_url || "")}" alt="Scene ${i + 1} key frame" loading="lazy"><span class="scene-tag">C${esc(segLabel(s))}</span></div>
+        <div class="scene-thumb"><img src="${esc(s.thumb_url || "")}" alt="Scene ${i + 1} key frame" loading="lazy"><span class="scene-tag">Scene ${i + 1}</span></div>
         <div class="scene-body">
-          <span class="scene-title">Scene ${i + 1}</span>
+          <span class="scene-title">Scene ${i + 1}<span class="scene-play">Watch →</span></span>
           <span class="scene-time">${fmtTime(s.start_s)} – ${fmtTime(s.end_s)}</span>
-          <span class="scene-dur">${fmtNum(dur, 1)} s · frames ${fmtNum(s.start_frame)}–${fmtNum(s.end_frame)}</span>
+          <span class="scene-dur">${fmtNum(dur, 1)} seconds</span>
         </div>
-        ${strip ? `<div class="scene-strip">${strip}</div>` : ""}`;
+`;
       card.addEventListener("click", () => {
         seek(s.start_s);
         $(".player").scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
@@ -504,7 +559,7 @@
       ui.scenes.querySelectorAll(".scene").forEach((b, i) => b.classList.toggle("is-current", i === idx));
       const s = segs[idx];
       if (s) {
-        ui.now.innerHTML = `<i style="--c:${colour(segLabel(s))}"></i>Now playing · Scene ${idx + 1} · cluster C${esc(segLabel(s))} · ${fmtTime(s.start_s)} – ${fmtTime(s.end_s)}`;
+        ui.now.innerHTML = `<i style="--c:${colour(segLabel(s))}"></i>${ui.video.paused ? "Selected" : "Playing"}: Scene ${idx + 1} · ${fmtTime(s.start_s)} to ${fmtTime(s.end_s)}`;
         if (MOCK) ui.videoMock.style.backgroundImage = `url("${s.thumb_url}")`;
       }
     }
@@ -514,8 +569,16 @@
   ui.video.addEventListener("timeupdate", () => updatePlayhead(ui.video.currentTime));
   ui.video.addEventListener("seeked", () => updatePlayhead(ui.video.currentTime));
   ui.video.addEventListener("play", () => {
+    state.current = -1;
     const loop = () => { if (!ui.video.paused && !ui.video.ended) { updatePlayhead(ui.video.currentTime); requestAnimationFrame(loop); } };
     requestAnimationFrame(loop);
+  });
+
+  ui.video.addEventListener("pause", () => { state.current = -1; updatePlayhead(ui.video.currentTime); });
+  ui.technical.addEventListener("toggle", () => {
+    const r = state.result;
+    if (!r || !ui.technical.open) return;
+    requestAnimationFrame(() => { renderNovelty(r.novelty || [], r.segments || []); renderScatter(r.scatter || []); });
   });
 
   /* ---------------- charts ---------------- */
@@ -560,11 +623,11 @@
     const yl = [0, 0.5, 1].map((f) => `<text class="axis" x="${pad.l - 8}" y="${(pad.t + ih - f * ih + 4).toFixed(1)}" text-anchor="end">${(max * f).toFixed(max < 10 ? 1 : 0)}</text>`).join("");
 
     box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Boundary signal over time with ${segs.length - 1} cuts">
-      <defs><linearGradient id="nvg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#3cc8b4" stop-opacity=".45"/><stop offset="1" stop-color="#3cc8b4" stop-opacity="0"/></linearGradient></defs>
+      <defs><linearGradient id="nvg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#245bd6" stop-opacity=".45"/><stop offset="1" stop-color="#245bd6" stop-opacity="0"/></linearGradient></defs>
       ${bands}
       <g class="grid">${grid}</g>
       <path d="${area}" fill="url(#nvg)"/>
-      <path d="${line}" fill="none" stroke="#3cc8b4" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="${line}" fill="none" stroke="#245bd6" stroke-width="1.5" stroke-linejoin="round"/>
       ${marks}
       <line x1="${pad.l}" x2="${pad.l + iw}" y1="${pad.t + ih}" y2="${pad.t + ih}" stroke="#2f363d"/>
       ${ticks}${yl}
@@ -592,13 +655,13 @@
     const pad = 16;
     const sx = (W - pad * 2) / ((x1 - x0) || 1), sy = (H - pad * 2) / ((y1 - y0) || 1);
     // frame
-    ctx.strokeStyle = "#242a30"; ctx.lineWidth = 1;
+    ctx.strokeStyle = "#dce3ed"; ctx.lineWidth = 1;
     for (let k = 1; k < 4; k++) {
       ctx.beginPath(); ctx.moveTo(pad + (k * (W - 2 * pad)) / 4, pad); ctx.lineTo(pad + (k * (W - 2 * pad)) / 4, H - pad); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(pad, pad + (k * (H - 2 * pad)) / 4); ctx.lineTo(W - pad, pad + (k * (H - 2 * pad)) / 4); ctx.stroke();
     }
     // faint path through time
-    ctx.strokeStyle = "rgba(236,235,230,0.07)";
+    ctx.strokeStyle = "rgba(23,44,75,0.1)";
     ctx.beginPath();
     points.forEach(([x, y], i) => { const px = pad + (x - x0) * sx, py = H - pad - (y - y0) * sy; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
     ctx.stroke();
@@ -609,7 +672,7 @@
       ctx.beginPath(); ctx.arc(pad + (x - x0) * sx, H - pad - (y - y0) * sy, r, 0, Math.PI * 2); ctx.fill();
     }
     ctx.globalAlpha = 1;
-    ctx.fillStyle = "#7d8487"; ctx.font = "11px 'IBM Plex Mono', monospace";
+    ctx.fillStyle = "#566781"; ctx.font = "11px 'IBM Plex Mono', monospace";
     ctx.fillText("PC1 →", W - pad - 40, H - 4);
     ctx.save(); ctx.translate(10, pad + 36); ctx.rotate(-Math.PI / 2); ctx.fillText("PC2 →", 0, 0); ctx.restore();
   }
@@ -620,8 +683,10 @@
     resizeT = setTimeout(() => {
       const r = state.result;
       if (!r) return;
-      renderNovelty(r.novelty || [], r.segments || []);
-      renderScatter(r.scatter || []);
+      if (ui.technical.open) {
+        renderNovelty(r.novelty || [], r.segments || []);
+        renderScatter(r.scatter || []);
+      }
       state.current = -1;
       updatePlayhead(MOCK ? mock.t : ui.video.currentTime || 0);
     }, 120);
